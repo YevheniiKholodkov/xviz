@@ -74,5 +74,69 @@ class XVIZBaseWriter:
                 self._message_timings['end_time'] = xviz_data.log_info.end_time
 
 class XVIZBaseReader:
-    def __init__(self, source):
-        raise NotImplementedError()
+    def __init__(self, source: BaseSource, suffix: str = "-frame.json"):
+        if source is None:
+            raise ValueError("Data source must be specified!")
+        self._source = source
+        self._message_timings = dict(messages={})
+        self._index = self._read_index()
+
+    def _xvizMessage(self, index, forse_json=False):
+        if index == 0 or forse_json:
+            return f"{index}-frame.json"
+        return f"{index}{self._s}"
+
+    def _read_index(self):
+        index_data = self._source.read(self._xvizMessage(0))
+        if not index_data:
+            raise ValueError("Cannot read index.")
+        try:
+            return json.loads(index_data)
+        except ValueError:
+            return index_data
+
+    def close(self):
+        self._source.close()
+
+    def read_metadata(self):
+        data = self._source.read(self._xvizMessage(1))
+        if not data:
+            data = self._source.read(self._xvizMessage(1, force_json=True))
+        return data
+
+    def read_message(self, message_index):
+        return self._source.read(self._xvizMessage(2 + message_index))
+
+    def check_message(self, message_index):
+        return self._source.exists(self._xvizMessage(2 + message_index))
+
+    def time_range(self):
+        start_time, end_time = self._index
+        return start_time, end_time
+
+    def message_count(self):
+        return len(self._index.timing)
+
+
+    def find_message(self, timestamp):
+        start_time, end_time, timings = self._index
+        message_count = self.message_count()
+        last_message = message_count - 1 if message_count > 0 else 0
+
+        if timestamp < start_time:
+            return 0, 0
+
+        if timestamp > end_time:
+            return last_message, last_message
+
+        try:
+            first = next(i for i, v in enumerate(timings) if v[0] >= timestamp)
+        except StopIteration:
+            first = 0
+
+        try:
+            last = last_message - next(i for i, v in enumerate(reversed(timings[first_message:])) if v[0] <= timestamp)
+        except StopIteration:
+            last = 0
+        return first, last
+
